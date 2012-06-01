@@ -4,6 +4,10 @@ import serialization._
 
 trait Operations { self: Redis =>
 
+  // SORT
+  // sort
+  def sort[A](key:Any, getKey:Any)(implicit format: Format, parse: Parse[A]): Option[List[Option[A]]] =
+    send("SORT", List(key, "BY", "nosort", "GET", getKey))(asList)
   // KEYS
   // returns all the keys matching the glob-style pattern.
   def keys[A](pattern: Any = "*")(implicit format: Format, parse: Parse[A]): Option[List[Option[A]]] =
