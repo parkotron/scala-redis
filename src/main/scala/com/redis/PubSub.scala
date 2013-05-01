@@ -17,6 +17,7 @@ sealed trait PubSubMessage
 case class S(channel: String, noSubscribed: Int) extends PubSubMessage
 case class U(channel: String, noSubscribed: Int) extends PubSubMessage
 case class M(origChannel: String, message: String) extends PubSubMessage
+case class E(e: java.lang.Throwable) extends PubSubMessage
 
 import Util._
 trait PubSub { self: Redis =>
@@ -30,25 +31,35 @@ trait PubSub { self: Redis =>
     }
 
     def run {
-      whileTrue {
-        asList match {
-          case Some(Some(msgType) :: Some(channel) :: Some(data) :: Nil) =>
-            msgType match {
-              case "subscribe" | "psubscribe" => fn(S(channel, data.toInt))
-              case "unsubscribe" if (data.toInt == 0) => 
-                fn(U(channel, data.toInt))
-                break
-              case "punsubscribe" if (data.toInt == 0) => 
-                fn(U(channel, data.toInt))
-                break
-              case "unsubscribe" | "punsubscribe" => 
-                fn(U(channel, data.toInt))
-              case "message" | "pmessage" => 
-                fn(M(channel, data))
-              case x => throw new RuntimeException("unhandled message: " + x)
-            }
-          case _ => break
+      try {
+        whileTrue {
+          asList match {
+            case Some(Some(msgType) :: Some(channel) :: Some(data) :: Nil) =>
+              msgType match {
+                case "subscribe" | "psubscribe" => fn(S(channel, data.toInt))
+                case "unsubscribe" if (data.toInt == 0) => 
+                  fn(U(channel, data.toInt))
+                  break
+                case "punsubscribe" if (data.toInt == 0) => 
+                  fn(U(channel, data.toInt))
+                  break
+                case "unsubscribe" | "punsubscribe" => 
+                  fn(U(channel, data.toInt))
+                case "message" =>
+                  fn(M(channel, data))
+                case x => throw new RuntimeException("unhandled message: " + x)
+              }
+            case Some(Some(msgType) :: Some(pattern) :: Some(channel) :: List(Some(data))) =>
+              msgType match {
+                case "pmessage" =>
+                  fn(M(channel, data))
+                case x => throw new RuntimeException("unhandled message: " + x)
+              }
+            case _ => break
+          }
         }
+      } catch {
+        case e => fn(E(e))
       }
     }
   }
@@ -96,7 +107,7 @@ trait PubSub { self: Redis =>
     send("UNSUBSCRIBE", channel :: channels.toList)(())
   }
 
-  def publish(channel: String, msg: String) = {
-    send("PUBLISH", List(channel, msg))(())
+  def publish(channel: String, msg: String): Option[Long] = {
+    send("PUBLISH", List(channel, msg))(asLong)
   }
 }
